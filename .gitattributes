@@ -97,3 +97,11 @@ frontend.zip filter=lfs diff=lfs merge=lfs -text
 /frontend/node_modules/update-browserslist-db/LICENSE filter=lfs diff=lfs merge=lfs -text
 *.applescript filter=lfs diff=lfs merge=lfs -text
 /frontend/node_modules/yallist/LICENSE filter=lfs diff=lfs merge=lfs -text
+/frontend/node_modules/.bin/tsc filter=lfs diff=lfs merge=lfs -text
+/frontend/node_modules/.bin/tsserver filter=lfs diff=lfs merge=lfs -text
+/frontend/node_modules/@types/prop-types/LICENSE filter=lfs diff=lfs merge=lfs -text
+/frontend/node_modules/@types/react-dom/LICENSE filter=lfs diff=lfs merge=lfs -text
+/frontend/node_modules/@types/react/LICENSE filter=lfs diff=lfs merge=lfs -text
+/frontend/node_modules/csstype/LICENSE filter=lfs diff=lfs merge=lfs -text
+/frontend/node_modules/typescript/bin/tsc filter=lfs diff=lfs merge=lfs -text
+/frontend/node_modules/typescript/bin/tsserver filter=lfs diff=lfs merge=lfs -text
