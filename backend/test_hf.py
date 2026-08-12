@@ -1,3 +1,6 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:22d8f8766177cec756714afd0baee357994b34a30dabc975372b160f3256aab2
-size 225
+from app.main import predict
+from app.schemas import DriverInput
+
+if __name__ == "__main__":
+    payload = DriverInput(transcript="I feel tired and stressed after a long drive", context="highway")
+    print(predict(payload))
