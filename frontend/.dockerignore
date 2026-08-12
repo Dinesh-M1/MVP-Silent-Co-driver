@@ -1,3 +1,8 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:df4dea595010800bb643c032680416a087a13ad22dd040811a1d41714f25ad3e
-size 60
+node_modules
+.next
+out
+.git
+.gitignore
+.env
+.env.local
+*.log
