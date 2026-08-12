@@ -1,3 +1,8 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:51617cd3a024379782af9fd233a902276d0ec7797df1f8f9ab0d41dfa34573d5
-size 169
+"""
+Silent Co-Driver AI Engine Backend Application.
+
+Real-time telemetry analysis, vocal emotion inference, 
+and pit wall strategy generation.
+"""
+
+__version__ = "1.0.0"
