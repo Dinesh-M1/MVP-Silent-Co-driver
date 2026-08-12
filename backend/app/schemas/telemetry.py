@@ -1,3 +1,8 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:446b27a20b29f15db5f04165576663dd38305c52e0adb280ee2c8fe99d3e9dd5
-size 176
+from pydantic import BaseModel
+
+class FrameBase64(BaseModel):
+    image_base64: str
+
+class TelemetryPayload(BaseModel):
+    frame: FrameBase64
+    driver_id: str | None = None
