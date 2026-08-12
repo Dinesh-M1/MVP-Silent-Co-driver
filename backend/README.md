@@ -1,3 +1,14 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:2556722b07043df2e967b9a8cacd7bcd1857ec45506e1df2ff7630863df4b711
-size 319
+---
+title: Silent Co-Driver Backend API
+emoji: ðŸŽï¸
+colorFrom: blue
+colorTo: dark-blue
+sdk: docker
+app_port: 7860
+pinned: false
+---
+---
+# Silent Co-Driver Backend API
+
+FastAPI backend for the Silent Co-Driver MVP.
+This service exposes analysis endpoints for driver fatigue, telemetry, and co-driver recommendations.
