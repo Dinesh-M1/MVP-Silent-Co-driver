@@ -1,3 +1,13 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:b167df279a8584addac45aa94ba8c64f632ce959c2dabe245eed04efdc4caa48
-size 289
+# Silent Co-Driver Frontend
+
+Next.js dashboard for the Silent Co-Driver MVP.
+This frontend sends driver input to the backend analysis endpoint and renders the response in a dashboard UI.
+
+## Getting Started
+
+```bash
+npm install
+npm run dev
+```
+
+Open http://localhost:3000 to view the app.
