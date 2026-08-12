@@ -1,6 +1,5 @@
 ---
 title: Silent Co-Driver Backend API
-emoji: ðŸŽï¸
 colorFrom: blue
 colorTo: dark-blue
 sdk: docker
