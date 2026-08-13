@@ -1,1005 +1,1321 @@
+import json
 import os
 import re
+from typing import Any
+
 import requests
-from typing import Any, Dict, List, Optional
 
 
-# ============================================================
-# Hugging Face sentiment model
-# ============================================================
-
-HF_API_URL = (
-    "https://api-inference.huggingface.co/models/"
-    "distilbert/distilbert-base-uncased-finetuned-sst-2-english"
-)
+HF_API_URL = "https://router.huggingface.co/v1/chat/completions"
 
 
-# ============================================================
-# Motorsport language patterns
-# ============================================================
+class SilentCoDriverEngine:
+    def __init__(self):
+        print("⚡ Silent Co-Driver Motorsport LLM Engine Initialized")
 
-SIGNAL_PATTERNS = {
-    "grip_loss": [
-        r"\blost grip\b",
-        r"\blosing grip\b",
-        r"\bno grip\b",
-        r"\bgrip is gone\b",
-        r"\bgrip has gone\b",
-        r"\bsliding\b",
-        r"\bslide\b",
-        r"\bslip(ping)?\b",
-        r"\bstepping out\b",
-        r"\bthe rear is moving\b",
-        r"\brear is gone\b",
-        r"\bfront is gone\b",
-        r"\bfront end is gone\b",
-        r"\bundersteer\b",
-        r"\boversteer\b",
-        r"\bcar is rotating\b",
-        r"\bcar keeps moving\b",
-        r"\bcan't put the power down\b",
-        r"\bno traction\b",
-        r"\blosing traction\b",
-    ],
+        self.hf_token = os.getenv("HF_TOKEN")
+        self.llm_model = os.getenv(
+            "HF_LLM_MODEL",
+            "Qwen/Qwen2.5-7B-Instruct",
+        )
 
-    "rear_instability": [
-        r"\brear is stepping out\b",
-        r"\brear stepping out\b",
-        r"\brear is loose\b",
-        r"\brear feels loose\b",
-        r"\brear end is loose\b",
-        r"\brear is unstable\b",
-        r"\brear instability\b",
-        r"\brear keeps sliding\b",
-        r"\brear keeps moving\b",
-    ],
+    # ============================================================
+    # BASIC HELPERS
+    # ============================================================
 
-    "front_instability": [
-        r"\bundersteer\b",
-        r"\bfront is washing out\b",
-        r"\bfront end is washing\b",
-        r"\bfront doesn't turn\b",
-        r"\bfront won't turn\b",
-        r"\bcan't turn in\b",
-        r"\bpoor turn in\b",
-    ],
-
-    "tire_overheating": [
-        r"\boverheating\b",
-        r"\boverheated\b",
-        r"\btyres? (are )?too hot\b",
-        r"\btires? (are )?too hot\b",
-        r"\btyres? are hot\b",
-        r"\btires? are hot\b",
-        r"\btyre temperature\b",
-        r"\btire temperature\b",
-        r"\btemperatures? (are )?high\b",
-        r"\btemps? (are )?high\b",
-        r"\btemps? are climbing\b",
-        r"\btyres? are cooking\b",
-        r"\btires? are cooking\b",
-    ],
-
-    "tire_wear": [
-        r"\btyre wear\b",
-        r"\btire wear\b",
-        r"\btyres? are worn\b",
-        r"\btires? are worn\b",
-        r"\btyres? are gone\b",
-        r"\btires? are gone\b",
-        r"\btyre degradation\b",
-        r"\btire degradation\b",
-        r"\bdegrad(ing|ation)\b",
-        r"\bfalling off\b",
-        r"\bfalling away\b",
-    ],
-
-    "puncture": [
-        r"\bpuncture\b",
-        r"\bpunctured\b",
-        r"\bflat tyre\b",
-        r"\bflat tire\b",
-        r"\bflat\b.*\btyre\b",
-        r"\bflat\b.*\btire\b",
-        r"\btyre is flat\b",
-        r"\btire is flat\b",
-    ],
-
-    "brake_problem": [
-        r"\bbrake problem\b",
-        r"\bbrakes? are gone\b",
-        r"\bbrakes? feel bad\b",
-        r"\bbrakes? feel weak\b",
-        r"\bbrakes? are weak\b",
-        r"\bno brakes\b",
-        r"\blong brake pedal\b",
-        r"\bbrake pedal\b.*\bsoft\b",
-        r"\bbraking problem\b",
-        r"\bcan't brake\b",
-    ],
-
-    "steering_problem": [
-        r"\bsteering problem\b",
-        r"\bsteering is heavy\b",
-        r"\bsteering feels heavy\b",
-        r"\bsteering feels wrong\b",
-        r"\bsteering issue\b",
-        r"\bsteering failure\b",
-        r"\bwheel feels wrong\b",
-        r"\bwheel is heavy\b",
-    ],
-
-    "engine_problem": [
-        r"\bengine problem\b",
-        r"\bengine issue\b",
-        r"\bengine failure\b",
-        r"\bengine is overheating\b",
-        r"\bpower loss\b",
-        r"\blost power\b",
-        r"\bno power\b",
-        r"\bengine feels weak\b",
-        r"\bengine is weak\b",
-    ],
-
-    "car_failure": [
-        r"\bbroken\b",
-        r"\bfailure\b",
-        r"\bfailed\b",
-        r"\bnot working\b",
-        r"\bmalfunction\b",
-        r"\bsomething broke\b",
-        r"\bsomething is broken\b",
-    ],
-
-    "pit_request": [
-        r"\bbox box\b",
-        r"\bbox this lap\b",
-        r"\bbox now\b",
-        r"\bbox\b",
-        r"\bi need to pit\b",
-        r"\bneed to pit\b",
-        r"\bpit this lap\b",
-        r"\bpit now\b",
-        r"\bcome in\b",
-        r"\bbring me in\b",
-        r"\bbring it in\b",
-        r"\bcall me in\b",
-    ],
-
-    "traffic": [
-        r"\btraffic\b",
-        r"\bblue flags?\b",
-        r"\bcar ahead\b",
-        r"\bcars ahead\b",
-        r"\bstuck behind\b",
-        r"\bgetting held up\b",
-        r"\bcan't get past\b",
-    ],
-
-    "vibration": [
-        r"\bvibration\b",
-        r"\bvibrating\b",
-        r"\bshaking\b",
-        r"\bwheel is shaking\b",
-        r"\bcar is shaking\b",
-    ],
-
-    "driver_stress": [
-        r"\bstruggling\b",
-        r"\bfrustrated\b",
-        r"\bfrustrating\b",
-        r"\bangry\b",
-        r"\bfurious\b",
-        r"\bstressed\b",
-        r"\bstress(ed)?\b",
-        r"\banxious\b",
-        r"\bworried\b",
-        r"\bnervous\b",
-        r"\bscared\b",
-        r"\bcan't do this\b",
-        r"\bthis is bad\b",
-        r"\bthis feels bad\b",
-        r"\bwhat is happening\b",
-        r"\bdamn\b",
-        r"\bshit\b",
-        r"\bfuck\b",
-    ],
-
-    "positive_state": [
-        r"\bcar feels good\b",
-        r"\bcar feels great\b",
-        r"\bcar feels fantastic\b",
-        r"\bbalance is good\b",
-        r"\bbalance is perfect\b",
-        r"\bfeels perfect\b",
-        r"\bfeels great\b",
-        r"\bfeels good\b",
-        r"\bno issues\b",
-        r"\bno problem\b",
-        r"\bcomfortable\b",
-        r"\bconfident\b",
-        r"\bpace is good\b",
-        r"\bpace is strong\b",
-        r"\ball good\b",
-        r"\beverything is good\b",
-    ],
-}
-
-
-# ============================================================
-# Severity weights
-# ============================================================
-
-SIGNAL_SEVERITY = {
-    "puncture": 1.00,
-    "car_failure": 0.95,
-    "engine_problem": 0.95,
-    "brake_problem": 0.95,
-    "steering_problem": 0.90,
-    "grip_loss": 0.75,
-    "rear_instability": 0.80,
-    "front_instability": 0.70,
-    "tire_overheating": 0.75,
-    "tire_wear": 0.65,
-    "driver_stress": 0.65,
-    "pit_request": 0.55,
-    "vibration": 0.55,
-    "traffic": 0.35,
-    "positive_state": 0.00,
-}
-
-
-# ============================================================
-# Utility functions
-# ============================================================
-
-def clean_text(text: str) -> str:
-    """
-    Normalize arbitrary driver input.
-    """
-    if not text:
-        return ""
-
-    text = str(text).strip()
-
-    # Collapse repeated whitespace
-    text = re.sub(r"\s+", " ", text)
-
-    return text
-
-
-def detect_signals(text: str) -> List[str]:
-    """
-    Detect motorsport signals from natural driver language.
-    """
-
-    text_lower = text.lower()
-
-    detected = []
-
-    for signal, patterns in SIGNAL_PATTERNS.items():
+    def _contains(self, text: str, patterns: list[str]) -> bool:
+        text_lower = text.lower()
 
         for pattern in patterns:
-
-            if re.search(pattern, text_lower):
-                detected.append(signal)
-                break
-
-    return detected
-
-
-def has_signal(signals: List[str], name: str) -> bool:
-    return name in signals
-
-
-def calculate_signal_severity(signals: List[str]) -> float:
-    """
-    Calculates the strongest detected condition.
-    """
-
-    if not signals:
-        return 0.0
-
-    severity_values = [
-        SIGNAL_SEVERITY.get(signal, 0.0)
-        for signal in signals
-    ]
-
-    strongest = max(severity_values)
-
-    # Multiple simultaneous issues increase urgency.
-    additional = max(0, len(signals) - 1) * 0.05
-
-    return min(1.0, strongest + additional)
-
-
-# ============================================================
-# Hugging Face sentiment
-# ============================================================
-
-def run_huggingface_sentiment(
-    text: str,
-) -> tuple[str, float, str]:
-
-    """
-    Attempts Hugging Face sentiment inference.
-
-    If unavailable, the local motorsport rule engine
-    continues working.
-    """
-
-    hf_token = os.getenv("HF_TOKEN")
-
-    headers: Dict[str, str] = {}
-
-    if hf_token:
-        headers["Authorization"] = f"Bearer {hf_token}"
-
-    payload = {
-        "inputs": text
-    }
-
-    try:
-
-        response = requests.post(
-            HF_API_URL,
-            json=payload,
-            headers=headers,
-            timeout=4,
-        )
-
-        if response.status_code != 200:
-            return (
-                "UNKNOWN",
-                0.50,
-                "Motorsport Rule Engine",
-            )
-
-        data = response.json()
-
-        if not isinstance(data, list) or not data:
-            return (
-                "UNKNOWN",
-                0.50,
-                "Motorsport Rule Engine",
-            )
-
-        result = data[0]
-
-        if isinstance(result, list):
-            result = result[0]
-
-        label = str(
-            result.get("label", "UNKNOWN")
-        ).upper()
-
-        score = float(
-            result.get("score", 0.50)
-        )
-
-        return (
-            label,
-            score,
-            "Hugging Face DistilBERT + Motorsport Rules",
-        )
-
-    except Exception as exc:
-
-        print(
-            f"Hugging Face inference unavailable: {exc}"
-        )
-
-        return (
-            "UNKNOWN",
-            0.50,
-            "Motorsport Rule Engine",
-        )
-
-
-# ============================================================
-# Driver state
-# ============================================================
-
-def calculate_driver_state(
-    text: str,
-    signals: List[str],
-    sentiment_label: str,
-    sentiment_score: float,
-) -> Dict[str, Any]:
-
-    signal_severity = calculate_signal_severity(signals)
-
-    negative_sentiment = (
-        sentiment_label == "NEGATIVE"
-    )
-
-    positive_sentiment = (
-        sentiment_label == "POSITIVE"
-    )
-
-    # --------------------------------------------------------
-    # Base stress
-    # --------------------------------------------------------
-
-    stress = 0.15
-
-    # Motorsport signals
-    stress += signal_severity * 0.60
-
-    # Sentiment
-    if negative_sentiment:
-        stress += sentiment_score * 0.20
-
-    elif positive_sentiment:
-        stress -= sentiment_score * 0.08
-
-    # Explicit positive phrases
-    if has_signal(signals, "positive_state"):
-        stress -= 0.15
-
-    stress_index = round(
-        max(0.0, min(1.0, stress)),
-        2,
-    )
-
-    # --------------------------------------------------------
-    # Alert
-    # --------------------------------------------------------
-
-    critical_signals = {
-        "puncture",
-        "car_failure",
-        "engine_problem",
-        "brake_problem",
-        "steering_problem",
-    }
-
-    if any(
-        signal in critical_signals
-        for signal in signals
-    ):
-        alert_level = "CRITICAL"
-
-    elif (
-        stress_index >= 0.75
-        or has_signal(signals, "grip_loss")
-        or has_signal(signals, "rear_instability")
-        or has_signal(signals, "tire_overheating")
-    ):
-        alert_level = "CRITICAL"
-
-    elif (
-        stress_index >= 0.45
-        or signals
-    ):
-        alert_level = "ELEVATED"
-
-    else:
-        alert_level = "NORMAL"
-
-    # --------------------------------------------------------
-    # Emotion
-    # --------------------------------------------------------
-
-    if alert_level == "CRITICAL":
-
-        if has_signal(signals, "driver_stress"):
-            emotion = "HIGH STRESS / ANXIETY"
-
-        else:
-            emotion = "HIGH ALERT"
-
-    elif alert_level == "ELEVATED":
-
-        if has_signal(signals, "driver_stress"):
-            emotion = "MODERATE STRESS"
-
-        else:
-            emotion = "DRIVER UNDER LOAD"
-
-    else:
-
-        if has_signal(signals, "positive_state"):
-            emotion = "CALM / FOCUSED"
-
-        else:
-            emotion = "NEUTRAL / FOCUSED"
-
-    # --------------------------------------------------------
-    # Confidence
-    # --------------------------------------------------------
-
-    confidence = 0.70
-
-    if signals:
-        confidence += 0.05
-
-    if len(signals) >= 2:
-        confidence += 0.05
-
-    if sentiment_label != "UNKNOWN":
-        confidence += 0.05
-
-    confidence = min(
-        0.98,
-        confidence,
-    )
-
-    return {
-        "stress_index": stress_index,
-        "alert_level": alert_level,
-        "emotion_label": emotion,
-        "confidence": round(confidence, 4),
-    }
-
-
-# ============================================================
-# Pit strategy
-# ============================================================
-
-def generate_pit_strategy(
-    lap: int,
-    alert_level: str,
-    signals: List[str],
-) -> Dict[str, Any]:
-
-    # --------------------------------------------------------
-    # Puncture / immediate mechanical issue
-    # --------------------------------------------------------
-
-    if has_signal(signals, "puncture"):
-
-        return {
-            "action": (
-                "Box immediately. Avoid aggressive "
-                "cornering and protect the damaged tire."
-            ),
-            "target_compound": "Fresh Medium",
-            "recommended_pit_lap": lap,
+            if re.search(
+                rf"\b{re.escape(pattern.lower())}\b",
+                text_lower,
+            ):
+                return True
+
+        return False
+
+    # ============================================================
+    # LOCAL MOTORSPORT SIGNAL DETECTION
+    # FALLBACK / VALIDATION LAYER
+    # ============================================================
+
+    def _analyse_signals(self, text: str) -> dict:
+        text_lower = text.lower().strip()
+
+        signals = {
+            "grip_loss": False,
+            "tire_problem": False,
+            "overheating": False,
+            "puncture": False,
+            "braking_problem": False,
+            "steering_problem": False,
+            "engine_problem": False,
+            "traffic": False,
+            "fatigue": False,
+            "high_workload": False,
+            "sliding": False,
+            "vibration": False,
+
+            # New F1-specific signals
+            "front_wing_damage": False,
+            "rear_wing_damage": False,
+            "floor_damage": False,
+            "sidepod_damage": False,
+            "diffuser_damage": False,
+            "downforce_loss": False,
+            "understeer": False,
+            "oversteer": False,
+            "wheel_locking": False,
+            "brake_fade": False,
+            "power_loss": False,
+            "gearbox_problem": False,
+            "dirty_air": False,
+            "tire_degradation": False,
         }
 
-    # --------------------------------------------------------
-    # Brake / steering / engine failure
-    # --------------------------------------------------------
+        # --------------------------------------------------------
+        # GRIP
+        # --------------------------------------------------------
 
-    if (
-        has_signal(signals, "brake_problem")
-        or has_signal(signals, "steering_problem")
-        or has_signal(signals, "engine_problem")
-    ):
+        grip_patterns = [
+            "lost grip",
+            "lose grip",
+            "losing grip",
+            "rear grip",
+            "front grip",
+            "no grip",
+            "low grip",
+            "grip is gone",
+            "grip is lost",
+            "car has no grip",
+            "traction is gone",
+            "lost traction",
+            "traction loss",
+        ]
 
-        return {
-            "action": (
-                "Box immediately for inspection. "
-                "Prioritize vehicle safety."
-            ),
-            "target_compound": "Fresh Medium",
-            "recommended_pit_lap": lap,
+        if self._contains(text_lower, grip_patterns):
+            signals["grip_loss"] = True
+
+        # --------------------------------------------------------
+        # UNDERSTEER
+        # --------------------------------------------------------
+
+        understeer_patterns = [
+            "understeer",
+            "understeering",
+            "car won't turn",
+            "car wont turn",
+            "front won't turn",
+            "front wont turn",
+            "front end won't turn",
+            "front end wont turn",
+            "pushing wide",
+            "running wide",
+            "front is washing",
+            "washing out",
+        ]
+
+        if self._contains(text_lower, understeer_patterns):
+            signals["understeer"] = True
+            signals["grip_loss"] = True
+
+        # --------------------------------------------------------
+        # OVERSTEER
+        # --------------------------------------------------------
+
+        oversteer_patterns = [
+            "oversteer",
+            "oversteering",
+            "rear is loose",
+            "rear end is loose",
+            "rear is stepping out",
+            "rear stepping out",
+            "rear keeps stepping out",
+            "car is rotating",
+            "car rotates",
+        ]
+
+        if self._contains(text_lower, oversteer_patterns):
+            signals["oversteer"] = True
+            signals["grip_loss"] = True
+            signals["sliding"] = True
+
+        # --------------------------------------------------------
+        # TIRES
+        # --------------------------------------------------------
+
+        tire_patterns = [
+            "tire",
+            "tires",
+            "tyre",
+            "tyres",
+            "tire degradation",
+            "tyre degradation",
+            "tire wear",
+            "tyre wear",
+            "tire damage",
+            "tyre damage",
+            "tires are gone",
+            "tyres are gone",
+        ]
+
+        if self._contains(text_lower, tire_patterns):
+            signals["tire_problem"] = True
+
+        # --------------------------------------------------------
+        # TIRE DEGRADATION
+        # --------------------------------------------------------
+
+        degradation_patterns = [
+            "tire degradation",
+            "tyre degradation",
+            "tire deg",
+            "tyre deg",
+            "tires are degrading",
+            "tyres are degrading",
+            "tires are going off",
+            "tyres are going off",
+            "tires are worn",
+            "tyres are worn",
+            "tire wear",
+            "tyre wear",
+        ]
+
+        if self._contains(text_lower, degradation_patterns):
+            signals["tire_degradation"] = True
+            signals["tire_problem"] = True
+
+        # --------------------------------------------------------
+        # LOST / FAILED TIRE
+        # --------------------------------------------------------
+
+        lost_tire_patterns = [
+            "lost tire",
+            "lost tires",
+            "lost a tire",
+            "lost my tire",
+            "lost rear tire",
+            "lost rear tires",
+            "lost front tire",
+            "lost front tires",
+            "rear tire lost",
+            "front tire lost",
+            "rear tire is gone",
+            "rear tires are gone",
+            "front tire is gone",
+            "front tires are gone",
+            "tire has gone",
+            "tyre has gone",
+        ]
+
+        if self._contains(text_lower, lost_tire_patterns):
+            signals["tire_problem"] = True
+            signals["puncture"] = True
+
+        # --------------------------------------------------------
+        # OVERHEATING
+        # --------------------------------------------------------
+
+        overheating_patterns = [
+            "overheating",
+            "overheat",
+            "too hot",
+            "running hot",
+            "temperature is high",
+            "temps are high",
+            "tire temperature",
+            "tyre temperature",
+            "tire temps",
+            "tyre temps",
+            "tires are hot",
+            "tyres are hot",
+            "engine temperature",
+            "engine is hot",
+        ]
+
+        if self._contains(text_lower, overheating_patterns):
+            signals["overheating"] = True
+
+        # --------------------------------------------------------
+        # PUNCTURE
+        # --------------------------------------------------------
+
+        puncture_patterns = [
+            "puncture",
+            "punctured",
+            "flat tire",
+            "flat tyre",
+            "tire is flat",
+            "tyre is flat",
+            "tire failure",
+            "tyre failure",
+            "tire damaged",
+            "tyre damaged",
+            "wheel damage",
+        ]
+
+        if self._contains(text_lower, puncture_patterns):
+            signals["puncture"] = True
+            signals["tire_problem"] = True
+
+        # --------------------------------------------------------
+        # FRONT WING
+        # --------------------------------------------------------
+
+        front_wing_patterns = [
+            "front wing",
+            "front wing damage",
+            "front wing damaged",
+            "front wing broken",
+            "lost front wing",
+            "front wing is gone",
+            "wing damage",
+            "nose damage",
+            "front end damage",
+        ]
+
+        if self._contains(text_lower, front_wing_patterns):
+            signals["front_wing_damage"] = True
+            signals["downforce_loss"] = True
+
+        # --------------------------------------------------------
+        # REAR WING
+        # --------------------------------------------------------
+
+        rear_wing_patterns = [
+            "rear wing",
+            "rear wing damage",
+            "rear wing damaged",
+            "rear wing broken",
+            "lost rear wing",
+            "rear wing is gone",
+        ]
+
+        if self._contains(text_lower, rear_wing_patterns):
+            signals["rear_wing_damage"] = True
+            signals["downforce_loss"] = True
+
+        # --------------------------------------------------------
+        # FLOOR
+        # --------------------------------------------------------
+
+        floor_patterns = [
+            "floor damage",
+            "floor is damaged",
+            "damaged floor",
+            "floor broken",
+            "lost the floor",
+        ]
+
+        if self._contains(text_lower, floor_patterns):
+            signals["floor_damage"] = True
+            signals["downforce_loss"] = True
+
+        # --------------------------------------------------------
+        # SIDEPOD
+        # --------------------------------------------------------
+
+        sidepod_patterns = [
+            "sidepod damage",
+            "sidepod damaged",
+            "sidepod broken",
+            "side pod damage",
+            "side pod damaged",
+        ]
+
+        if self._contains(text_lower, sidepod_patterns):
+            signals["sidepod_damage"] = True
+
+        # --------------------------------------------------------
+        # DIFFUSER
+        # --------------------------------------------------------
+
+        diffuser_patterns = [
+            "diffuser damage",
+            "diffuser damaged",
+            "diffuser broken",
+        ]
+
+        if self._contains(text_lower, diffuser_patterns):
+            signals["diffuser_damage"] = True
+            signals["downforce_loss"] = True
+
+        # --------------------------------------------------------
+        # DOWNFORCE
+        # --------------------------------------------------------
+
+        downforce_patterns = [
+            "lost downforce",
+            "downforce loss",
+            "no downforce",
+            "low downforce",
+            "less downforce",
+            "downforce is gone",
+        ]
+
+        if self._contains(text_lower, downforce_patterns):
+            signals["downforce_loss"] = True
+
+        # --------------------------------------------------------
+        # BRAKES
+        # --------------------------------------------------------
+
+        braking_patterns = [
+            "brakes are bad",
+            "brakes feel bad",
+            "brake problem",
+            "braking problem",
+            "brake failure",
+            "brake pedal",
+            "can't brake",
+            "cant brake",
+            "no brakes",
+            "brakes overheating",
+            "brake temperature",
+        ]
+
+        if self._contains(text_lower, braking_patterns):
+            signals["braking_problem"] = True
+
+        # --------------------------------------------------------
+        # BRAKE FADE
+        # --------------------------------------------------------
+
+        brake_fade_patterns = [
+            "brake fade",
+            "brakes fading",
+            "brakes are fading",
+            "brakes feel weak",
+            "brakes feel soft",
+            "pedal is soft",
+            "braking performance is dropping",
+        ]
+
+        if self._contains(text_lower, brake_fade_patterns):
+            signals["brake_fade"] = True
+            signals["braking_problem"] = True
+
+        # --------------------------------------------------------
+        # WHEEL LOCKING
+        # --------------------------------------------------------
+
+        locking_patterns = [
+            "locking up",
+            "locked the fronts",
+            "locking the fronts",
+            "fronts are locking",
+            "rear is locking",
+            "rear locking",
+            "wheel lock",
+            "wheel locking",
+        ]
+
+        if self._contains(text_lower, locking_patterns):
+            signals["wheel_locking"] = True
+            signals["braking_problem"] = True
+
+        # --------------------------------------------------------
+        # STEERING
+        # --------------------------------------------------------
+
+        steering_patterns = [
+            "steering problem",
+            "steering issue",
+            "steering is heavy",
+            "steering feels heavy",
+            "steering broken",
+            "can't steer",
+            "cant steer",
+            "steering failure",
+        ]
+
+        if self._contains(text_lower, steering_patterns):
+            signals["steering_problem"] = True
+
+        # --------------------------------------------------------
+        # ENGINE / POWER
+        # --------------------------------------------------------
+
+        engine_patterns = [
+            "engine failure",
+            "engine problem",
+            "engine issue",
+            "engine overheating",
+            "engine is overheating",
+            "engine smoke",
+            "smoke from engine",
+            "engine is broken",
+        ]
+
+        if self._contains(text_lower, engine_patterns):
+            signals["engine_problem"] = True
+
+        power_patterns = [
+            "lost power",
+            "no power",
+            "power loss",
+            "losing power",
+            "engine losing power",
+        ]
+
+        if self._contains(text_lower, power_patterns):
+            signals["power_loss"] = True
+            signals["engine_problem"] = True
+
+        # --------------------------------------------------------
+        # GEARBOX
+        # --------------------------------------------------------
+
+        gearbox_patterns = [
+            "gearbox",
+            "gearbox problem",
+            "gearbox issue",
+            "gear won't engage",
+            "gear wont engage",
+            "can't change gear",
+            "cant change gear",
+            "stuck in gear",
+            "gear selection problem",
+        ]
+
+        if self._contains(text_lower, gearbox_patterns):
+            signals["gearbox_problem"] = True
+
+        # --------------------------------------------------------
+        # TRAFFIC / DIRTY AIR
+        # --------------------------------------------------------
+
+        traffic_patterns = [
+            "traffic",
+            "cars ahead",
+            "car ahead",
+            "cars in front",
+            "traffic ahead",
+            "stuck behind",
+            "blocked",
+        ]
+
+        if self._contains(text_lower, traffic_patterns):
+            signals["traffic"] = True
+
+        dirty_air_patterns = [
+            "dirty air",
+            "following closely",
+            "can't follow",
+            "cant follow",
+            "losing front in traffic",
+            "front washes in traffic",
+        ]
+
+        if self._contains(text_lower, dirty_air_patterns):
+            signals["dirty_air"] = True
+            signals["traffic"] = True
+            signals["grip_loss"] = True
+
+        # --------------------------------------------------------
+        # FATIGUE
+        # --------------------------------------------------------
+
+        fatigue_patterns = [
+            "tired",
+            "very tired",
+            "exhausted",
+            "fatigued",
+            "fatigue",
+            "sleepy",
+            "struggling to focus",
+            "can't focus",
+            "cant focus",
+            "losing concentration",
+            "hard to concentrate",
+        ]
+
+        if self._contains(text_lower, fatigue_patterns):
+            signals["fatigue"] = True
+
+        # --------------------------------------------------------
+        # WORKLOAD
+        # --------------------------------------------------------
+
+        workload_patterns = [
+            "too much going on",
+            "too busy",
+            "struggling",
+            "difficult to manage",
+            "hard to manage",
+            "can't keep up",
+            "cant keep up",
+            "under pressure",
+            "high workload",
+        ]
+
+        if self._contains(text_lower, workload_patterns):
+            signals["high_workload"] = True
+
+        # --------------------------------------------------------
+        # VIBRATION
+        # --------------------------------------------------------
+
+        vibration_patterns = [
+            "vibration",
+            "vibrating",
+            "shaking",
+            "wheel vibration",
+            "steering vibration",
+        ]
+
+        if self._contains(text_lower, vibration_patterns):
+            signals["vibration"] = True
+
+        # --------------------------------------------------------
+        # SLIDING
+        # --------------------------------------------------------
+
+        sliding_patterns = [
+            "sliding",
+            "slide",
+            "slip",
+            "slipping",
+            "rear sliding",
+            "front sliding",
+        ]
+
+        if self._contains(text_lower, sliding_patterns):
+            signals["sliding"] = True
+            signals["grip_loss"] = True
+
+        return signals
+
+    # ============================================================
+    # MOTORSPORT LLM
+    # ============================================================
+
+    def _ask_motorsport_llm(self, text: str) -> dict | None:
+        if not self.hf_token:
+            print(
+                "HF_TOKEN not configured - "
+                "using Motorsport Rule Engine fallback."
+            )
+            return None
+
+        system_prompt = """
+You are a Formula 1 race engineer and motorsport radio analyst.
+
+Interpret natural driver radio language, including incomplete,
+informal, emotional and technically imprecise statements.
+
+Understand Formula 1 terminology such as:
+
+- understeer
+- oversteer
+- lock-up
+- front/rear grip
+- tire degradation
+- tire overheating
+- brake fade
+- front wing
+- rear wing
+- floor
+- diffuser
+- sidepod
+- downforce
+- dirty air
+- traffic
+- power loss
+- gearbox
+- engine temperature
+- puncture
+- vibration
+- steering problems
+
+Return ONLY valid JSON.
+
+The JSON must contain:
+
+{
+  "signals": {
+    "grip_loss": false,
+    "tire_problem": false,
+    "overheating": false,
+    "puncture": false,
+    "braking_problem": false,
+    "steering_problem": false,
+    "engine_problem": false,
+    "traffic": false,
+    "fatigue": false,
+    "high_workload": false,
+    "sliding": false,
+    "vibration": false,
+    "front_wing_damage": false,
+    "rear_wing_damage": false,
+    "floor_damage": false,
+    "sidepod_damage": false,
+    "diffuser_damage": false,
+    "downforce_loss": false,
+    "understeer": false,
+    "oversteer": false,
+    "wheel_locking": false,
+    "brake_fade": false,
+    "power_loss": false,
+    "gearbox_problem": false,
+    "dirty_air": false,
+    "tire_degradation": false
+  },
+  "severity": "NORMAL",
+  "emotion": "NEUTRAL / FOCUSED",
+  "driver_message": "short actionable radio response"
+}
+
+Rules:
+
+1. Only mark a signal true when the driver's statement supports it.
+2. Understand synonyms and natural language.
+3. "I lost the front wing" means front_wing_damage=true and
+   downforce_loss=true.
+4. "The rear is stepping out" means oversteer=true,
+   sliding=true and grip_loss=true.
+5. "I'm locking the fronts" means wheel_locking=true and
+   braking_problem=true.
+6. "The tires are gone" means tire_problem=true and potentially
+   tire_degradation=true.
+7. "I can't get the car turned in" means understeer=true and
+   grip_loss=true.
+8. Critical vehicle damage should produce CRITICAL severity.
+9. Do not invent telemetry values.
+10. Keep driver_message concise enough for race radio.
+"""
+
+        user_prompt = f"""
+Driver radio:
+
+"{text}"
+
+Analyze this statement as an F1 race engineer.
+"""
+
+        payload = {
+            "model": self.llm_model,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": system_prompt,
+                },
+                {
+                    "role": "user",
+                    "content": user_prompt,
+                },
+            ],
+            "temperature": 0.1,
+            "max_tokens": 700,
         }
 
-    # --------------------------------------------------------
-    # Explicit pit request
-    # --------------------------------------------------------
+        headers = {
+            "Authorization": f"Bearer {self.hf_token}",
+            "Content-Type": "application/json",
+        }
 
-    if has_signal(signals, "pit_request"):
+        try:
+            response = requests.post(
+                HF_API_URL,
+                json=payload,
+                headers=headers,
+                timeout=15,
+            )
+
+            if response.status_code != 200:
+                print(
+                    f"Motorsport LLM unavailable: "
+                    f"{response.status_code}"
+                )
+                return None
+
+            data = response.json()
+
+            choices = data.get("choices")
+
+            if not choices:
+                return None
+
+            content = choices[0]["message"]["content"]
+
+            return self._extract_json(content)
+
+        except Exception as exc:
+            print(
+                f"Motorsport LLM unavailable: {exc}"
+            )
+            return None
+
+    # ============================================================
+    # JSON EXTRACTION
+    # ============================================================
+
+    def _extract_json(self, content: str) -> dict | None:
+        if not content:
+            return None
+
+        content = content.strip()
+
+        # Direct JSON
+        try:
+            parsed = json.loads(content)
+
+            if isinstance(parsed, dict):
+                return parsed
+
+        except json.JSONDecodeError:
+            pass
+
+        # JSON inside markdown fences
+        fenced = re.search(
+            r"```(?:json)?\s*(\{.*?\})\s*```",
+            content,
+            flags=re.DOTALL,
+        )
+
+        if fenced:
+            try:
+                parsed = json.loads(fenced.group(1))
+
+                if isinstance(parsed, dict):
+                    return parsed
+
+            except json.JSONDecodeError:
+                pass
+
+        # Find first JSON object
+        start = content.find("{")
+        end = content.rfind("}")
+
+        if start >= 0 and end > start:
+            try:
+                parsed = json.loads(
+                    content[start : end + 1]
+                )
+
+                if isinstance(parsed, dict):
+                    return parsed
+
+            except json.JSONDecodeError:
+                pass
+
+        return None
+
+    # ============================================================
+    # MERGE LLM + LOCAL SIGNALS
+    # ============================================================
+
+    def _merge_signals(
+        self,
+        local_signals: dict,
+        llm_result: dict | None,
+    ) -> dict:
+
+        merged = dict(local_signals)
+
+        if not llm_result:
+            return merged
+
+        llm_signals = llm_result.get(
+            "signals",
+            {},
+        )
+
+        if not isinstance(llm_signals, dict):
+            return merged
+
+        for key in merged:
+            if llm_signals.get(key) is True:
+                merged[key] = True
+
+        return merged
+
+    # ============================================================
+    # DRIVER STATE
+    # ============================================================
+
+    def _calculate_driver_state(
+        self,
+        signals: dict,
+        llm_result: dict | None,
+    ):
+        critical = (
+            signals["puncture"]
+            or signals["engine_problem"]
+            or signals["gearbox_problem"]
+            or signals["braking_problem"]
+            or signals["front_wing_damage"]
+            or signals["rear_wing_damage"]
+            or signals["floor_damage"]
+            or signals["diffuser_damage"]
+            or (
+                signals["grip_loss"]
+                and signals["tire_problem"]
+            )
+            or (
+                signals["overheating"]
+                and signals["tire_problem"]
+            )
+        )
+
+        if critical:
+            return (
+                0.91,
+                "CRITICAL",
+                "HIGH STRESS / ANXIETY",
+            )
+
+        elevated = (
+            signals["grip_loss"]
+            or signals["tire_problem"]
+            or signals["overheating"]
+            or signals["steering_problem"]
+            or signals["sliding"]
+            or signals["vibration"]
+            or signals["high_workload"]
+            or signals["fatigue"]
+            or signals["traffic"]
+            or signals["understeer"]
+            or signals["oversteer"]
+            or signals["wheel_locking"]
+            or signals["dirty_air"]
+            or signals["tire_degradation"]
+        )
+
+        if elevated:
+            return (
+                0.72,
+                "ELEVATED",
+                "MODERATE STRESS",
+            )
+
+        if llm_result:
+            severity = str(
+                llm_result.get(
+                    "severity",
+                    "NORMAL",
+                )
+            ).upper()
+
+            emotion = str(
+                llm_result.get(
+                    "emotion",
+                    "NEUTRAL / FOCUSED",
+                )
+            )
+
+            if severity == "CRITICAL":
+                return (
+                    0.91,
+                    "CRITICAL",
+                    emotion,
+                )
+
+            if severity == "ELEVATED":
+                return (
+                    0.72,
+                    "ELEVATED",
+                    emotion,
+                )
+
+        return (
+            0.15,
+            "NORMAL",
+            "NEUTRAL / FOCUSED",
+        )
+
+    # ============================================================
+    # STRATEGY
+    # ============================================================
+
+    def _generate_strategy(
+        self,
+        signals: dict,
+        alert_level: str,
+        lap: int,
+        llm_result: dict | None,
+    ):
+
+        # LLM can provide a strategic recommendation,
+        # but only use it if it contains a usable action.
+
+        llm_strategy = (
+            llm_result.get("strategy")
+            if isinstance(llm_result, dict)
+            else None
+        )
+
+        if isinstance(llm_strategy, dict):
+            action = llm_strategy.get("action")
+            compound = llm_strategy.get(
+                "target_compound",
+                "Current",
+            )
+
+            if action:
+                return {
+                    "action": str(action),
+                    "target_compound": str(compound),
+                    "recommended_pit_lap": lap,
+                }
+
+        # --------------------------------------------------------
+        # FRONT / REAR WING
+        # --------------------------------------------------------
 
         if (
-            has_signal(signals, "tire_overheating")
-            or has_signal(signals, "tire_wear")
-            or has_signal(signals, "grip_loss")
+            signals["front_wing_damage"]
+            or signals["rear_wing_damage"]
         ):
-
             return {
                 "action": (
-                    "Box this lap. Prepare fresh tires "
-                    "and manage the entry safely."
+                    "Box immediately. Assess aerodynamic damage "
+                    "and prepare replacement parts."
                 ),
-                "target_compound": "Fresh Medium",
+                "target_compound": "Current",
                 "recommended_pit_lap": lap,
             }
 
+        # --------------------------------------------------------
+        # FLOOR / DIFFUSER
+        # --------------------------------------------------------
+
+        if (
+            signals["floor_damage"]
+            or signals["diffuser_damage"]
+        ):
+            return {
+                "action": (
+                    "Box and inspect the floor and aerodynamic "
+                    "components immediately."
+                ),
+                "target_compound": "Current",
+                "recommended_pit_lap": lap,
+            }
+
+        # --------------------------------------------------------
+        # PUNCTURE
+        # --------------------------------------------------------
+
+        if signals["puncture"]:
+            return {
+                "action": (
+                    "Box immediately. Check tire damage "
+                    "and prepare fresh Medium tires."
+                ),
+                "target_compound": "Medium",
+                "recommended_pit_lap": lap,
+            }
+
+        # --------------------------------------------------------
+        # GRIP + TIRE + OVERHEATING
+        # --------------------------------------------------------
+
+        if (
+            signals["grip_loss"]
+            and signals["tire_problem"]
+            and signals["overheating"]
+        ):
+            return {
+                "action": (
+                    "Box this lap. Prepare fresh Medium tires."
+                ),
+                "target_compound": "Medium",
+                "recommended_pit_lap": lap,
+            }
+
+        # --------------------------------------------------------
+        # GRIP + TIRE
+        # --------------------------------------------------------
+
+        if (
+            signals["grip_loss"]
+            and signals["tire_problem"]
+        ):
+            return {
+                "action": (
+                    "Box this lap. Prepare fresh Medium tires."
+                ),
+                "target_compound": "Medium",
+                "recommended_pit_lap": lap,
+            }
+
+        # --------------------------------------------------------
+        # BRAKES
+        # --------------------------------------------------------
+
+        if (
+            signals["brake_fade"]
+            or signals["wheel_locking"]
+            or signals["braking_problem"]
+        ):
+            return {
+                "action": (
+                    "Manage braking load and monitor "
+                    "brake temperatures."
+                ),
+                "target_compound": "Current",
+                "recommended_pit_lap": lap + 2,
+            }
+
+        # --------------------------------------------------------
+        # ENGINE / POWER
+        # --------------------------------------------------------
+
+        if (
+            signals["engine_problem"]
+            or signals["power_loss"]
+        ):
+            return {
+                "action": (
+                    "Protect the engine and prepare "
+                    "for an immediate pit stop."
+                ),
+                "target_compound": "Current",
+                "recommended_pit_lap": lap,
+            }
+
+        # --------------------------------------------------------
+        # GEARBOX
+        # --------------------------------------------------------
+
+        if signals["gearbox_problem"]:
+            return {
+                "action": (
+                    "Protect the gearbox and avoid unnecessary "
+                    "shift load."
+                ),
+                "target_compound": "Current",
+                "recommended_pit_lap": lap + 2,
+            }
+
+        # --------------------------------------------------------
+        # OVERHEATING
+        # --------------------------------------------------------
+
+        if signals["overheating"]:
+            return {
+                "action": (
+                    "Manage tire temperatures "
+                    "and prepare a pit stop."
+                ),
+                "target_compound": "Medium",
+                "recommended_pit_lap": lap + 1,
+            }
+
+        # --------------------------------------------------------
+        # TRAFFIC
+        # --------------------------------------------------------
+
+        if (
+            signals["traffic"]
+            or signals["dirty_air"]
+        ):
+            return {
+                "action": (
+                    "Manage tire temperature and search "
+                    "for clean air."
+                ),
+                "target_compound": "Current",
+                "recommended_pit_lap": lap + 4,
+            }
+
+        # --------------------------------------------------------
+        # FATIGUE
+        # --------------------------------------------------------
+
+        if (
+            signals["fatigue"]
+            or signals["high_workload"]
+        ):
+            return {
+                "action": (
+                    "Reduce workload and maintain "
+                    "a controlled race pace."
+                ),
+                "target_compound": "Current",
+                "recommended_pit_lap": lap + 4,
+            }
+
+        # --------------------------------------------------------
+        # ELEVATED
+        # --------------------------------------------------------
+
+        if alert_level == "ELEVATED":
+            return {
+                "action": (
+                    "Adjust brake balance +2% rear "
+                    "and monitor tire temperatures."
+                ),
+                "target_compound": "Medium",
+                "recommended_pit_lap": lap + 3,
+            }
+
+        # --------------------------------------------------------
+        # NORMAL
+        # --------------------------------------------------------
+
         return {
             "action": (
-                "Pit request confirmed. Prepare pit entry "
-                "and evaluate tire selection."
-            ),
-            "target_compound": "Fresh Medium",
-            "recommended_pit_lap": lap,
-        }
-
-    # --------------------------------------------------------
-    # Tire overheating + grip
-    # --------------------------------------------------------
-
-    if (
-        has_signal(signals, "tire_overheating")
-        and has_signal(signals, "grip_loss")
-    ):
-
-        return {
-            "action": (
-                "Manage tire load immediately and prepare "
-                "to box at the next suitable opportunity."
-            ),
-            "target_compound": "Medium",
-            "recommended_pit_lap": lap + 1,
-        }
-
-    # --------------------------------------------------------
-    # Rear instability
-    # --------------------------------------------------------
-
-    if has_signal(signals, "rear_instability"):
-
-        return {
-            "action": (
-                "Reduce rear tire load and stabilize the car. "
-                "Monitor rear temperatures."
-            ),
-            "target_compound": "Medium",
-            "recommended_pit_lap": lap + 3,
-        }
-
-    # --------------------------------------------------------
-    # General grip loss
-    # --------------------------------------------------------
-
-    if has_signal(signals, "grip_loss"):
-
-        return {
-            "action": (
-                "Reduce tire stress and monitor grip through "
-                "the next sector."
-            ),
-            "target_compound": "Medium",
-            "recommended_pit_lap": lap + 3,
-        }
-
-    # --------------------------------------------------------
-    # Tire wear
-    # --------------------------------------------------------
-
-    if has_signal(signals, "tire_wear"):
-
-        return {
-            "action": (
-                "Manage tire degradation and prepare for "
-                "a controlled pit stop."
-            ),
-            "target_compound": "Medium",
-            "recommended_pit_lap": lap + 4,
-        }
-
-    # --------------------------------------------------------
-    # Traffic
-    # --------------------------------------------------------
-
-    if has_signal(signals, "traffic"):
-
-        return {
-            "action": (
-                "Manage the gap and avoid unnecessary tire "
-                "and brake temperature spikes."
+                "Maintain current pace and stint strategy."
             ),
             "target_compound": "Optimal Delta",
-            "recommended_pit_lap": lap + 5,
+            "recommended_pit_lap": lap + 6,
         }
 
-    # --------------------------------------------------------
-    # Elevated driver state
-    # --------------------------------------------------------
+    # ============================================================
+    # DRIVER RADIO RESPONSE
+    # ============================================================
 
-    if alert_level == "ELEVATED":
-
-        return {
-            "action": (
-                "Maintain a controlled pace and monitor "
-                "driver and tire state."
-            ),
-            "target_compound": "Optimal Delta",
-            "recommended_pit_lap": lap + 5,
-        }
-
-    # --------------------------------------------------------
-    # Normal
-    # --------------------------------------------------------
-
-    return {
-        "action": (
-            "Maintain current pace and stint strategy."
-        ),
-        "target_compound": "Optimal Delta",
-        "recommended_pit_lap": lap + 6,
-    }
-
-
-# ============================================================
-# Co-Driver radio response
-# ============================================================
-
-def generate_driver_message(
-    alert_level: str,
-    signals: List[str],
-    strategy: Dict[str, Any],
-) -> str:
-
-    """
-    Produces a short actionable radio response.
-
-    This is deliberately different from the detailed
-    dashboard output.
-    """
-
-    # --------------------------------------------------------
-    # Immediate danger
-    # --------------------------------------------------------
-
-    if has_signal(signals, "puncture"):
-
-        return (
-            "Puncture detected. Box immediately. "
-            "Protect the damaged tire on the way in."
-        )
-
-    if has_signal(signals, "brake_problem"):
-
-        return (
-            "Brake issue detected. Box immediately "
-            "for inspection. Prioritize safety."
-        )
-
-    if has_signal(signals, "steering_problem"):
-
-        return (
-            "Steering issue detected. Box immediately "
-            "for inspection."
-        )
-
-    if has_signal(signals, "engine_problem"):
-
-        return (
-            "Engine issue detected. Reduce load and "
-            "box for inspection."
-        )
-
-    # --------------------------------------------------------
-    # Pit request
-    # --------------------------------------------------------
-
-    if has_signal(signals, "pit_request"):
-
-        return (
-            "Pit request confirmed. "
-            f"{strategy['action']} "
-            f"{strategy['target_compound']} tires."
-        )
-
-    # --------------------------------------------------------
-    # Grip + overheating
-    # --------------------------------------------------------
-
-    if (
-        has_signal(signals, "grip_loss")
-        and has_signal(signals, "tire_overheating")
+    def _generate_driver_message(
+        self,
+        signals: dict,
+        alert_level: str,
+        llm_result: dict | None,
     ):
 
+        # Prefer LLM radio response when available.
+        if llm_result:
+            llm_message = llm_result.get(
+                "driver_message"
+            )
+
+            if isinstance(
+                llm_message,
+                str,
+            ) and llm_message.strip():
+
+                return llm_message.strip()
+
+        if signals["front_wing_damage"]:
+            return (
+                "Front wing damage detected. "
+                "Box immediately and prepare a replacement."
+            )
+
+        if signals["rear_wing_damage"]:
+            return (
+                "Rear wing damage detected. "
+                "Box immediately and assess the damage."
+            )
+
+        if (
+            signals["floor_damage"]
+            or signals["diffuser_damage"]
+        ):
+            return (
+                "Aero damage detected. "
+                "Box this lap for inspection."
+            )
+
+        if signals["puncture"]:
+            return (
+                "Tire failure detected. "
+                "Box immediately."
+            )
+
+        if (
+            signals["grip_loss"]
+            and signals["tire_problem"]
+            and signals["overheating"]
+        ):
+            return (
+                "Grip loss and tire overheating detected. "
+                "Box this lap."
+            )
+
+        if (
+            signals["understeer"]
+            and signals["oversteer"]
+        ):
+            return (
+                "Vehicle balance instability detected. "
+                "Manage the car and report if it worsens."
+            )
+
+        if signals["understeer"]:
+            return (
+                "Understeer detected. "
+                "Manage front tire load and entry speed."
+            )
+
+        if signals["oversteer"]:
+            return (
+                "Oversteer detected. "
+                "Manage rear traction and throttle."
+            )
+
+        if signals["wheel_locking"]:
+            return (
+                "Front lock-up detected. "
+                "Reduce braking load."
+            )
+
+        if signals["brake_fade"]:
+            return (
+                "Brake fade detected. "
+                "Reduce braking load and monitor temperatures."
+            )
+
+        if signals["engine_problem"]:
+            return (
+                "Engine issue detected. "
+                "Protect the engine and prepare to box."
+            )
+
+        if signals["power_loss"]:
+            return (
+                "Power loss detected. "
+                "Protect the engine and prepare to box."
+            )
+
+        if signals["gearbox_problem"]:
+            return (
+                "Gearbox issue detected. "
+                "Reduce shift load and protect the car."
+            )
+
+        if signals["traffic"]:
+            return (
+                "Traffic ahead. "
+                "Manage tire temperature and look for clean air."
+            )
+
+        if signals["fatigue"]:
+            return (
+                "Driver fatigue detected. "
+                "Stay controlled and maintain focus."
+            )
+
+        if signals["high_workload"]:
+            return (
+                "High driver workload detected. "
+                "Focus on the next sector."
+            )
+
+        if alert_level == "ELEVATED":
+            return (
+                "Driver state elevated. "
+                "Manage pace and monitor vehicle condition."
+            )
+
         return (
-            "Grip loss and tire overheating detected. "
-            "Manage the tires and prepare to box."
+            "Driver state stable. "
+            "Maintain current pace and strategy."
         )
 
-    # --------------------------------------------------------
-    # Grip
-    # --------------------------------------------------------
-
-    if has_signal(signals, "grip_loss"):
-
-        return (
-            "Grip loss detected. Reduce tire load "
-            "and stabilize the car."
-        )
-
-    # --------------------------------------------------------
-    # Rear instability
-    # --------------------------------------------------------
-
-    if has_signal(signals, "rear_instability"):
-
-        return (
-            "Rear instability detected. Reduce aggression "
-            "and manage the rear tires."
-        )
-
-    # --------------------------------------------------------
-    # Front instability
-    # --------------------------------------------------------
-
-    if has_signal(signals, "front_instability"):
-
-        return (
-            "Understeer detected. Protect the front tires "
-            "and avoid overloading turn-in."
-        )
-
-    # --------------------------------------------------------
-    # Tire temperature
-    # --------------------------------------------------------
-
-    if has_signal(signals, "tire_overheating"):
-
-        return (
-            "Tire temperatures are high. Reduce tire load "
-            "and manage the next sector."
-        )
-
-    # --------------------------------------------------------
-    # Tire wear
-    # --------------------------------------------------------
-
-    if has_signal(signals, "tire_wear"):
-
-        return (
-            "Tire degradation detected. Manage the tires "
-            "and protect the remaining stint."
-        )
-
-    # --------------------------------------------------------
-    # Driver stress
-    # --------------------------------------------------------
-
-    if has_signal(signals, "driver_stress"):
-
-        return (
-            "Driver stress elevated. Stay composed, "
-            "stabilize the car and focus on the next sector."
-        )
-
-    # --------------------------------------------------------
-    # Traffic
-    # --------------------------------------------------------
-
-    if has_signal(signals, "traffic"):
-
-        return (
-            "Traffic detected. Manage the gap and "
-            "avoid unnecessary tire and brake load."
-        )
-
-    # --------------------------------------------------------
-    # Positive
-    # --------------------------------------------------------
-
-    if has_signal(signals, "positive_state"):
-
-        return (
-            "Car balance is stable. Maintain current "
-            "pace and strategy."
-        )
-
-    # --------------------------------------------------------
-    # Default
-    # --------------------------------------------------------
-
-    if alert_level == "NORMAL":
-
-        return (
-            "Driver state stable. Maintain current pace "
-            "and strategy."
-        )
-
-    return (
-        "Driver state elevated. Stay composed and "
-        "monitor the next sector."
-    )
-
-
-# ============================================================
-# Gauge / driver telemetry
-# ============================================================
-
-def generate_driver_telemetry(
-    stress_index: float,
-    alert_level: str,
-    signals: List[str],
-) -> Dict[str, Any]:
-
-    """
-    Generates telemetry values that are actually supported
-    by the current input.
-
-    Speed and EAR are NOT fabricated.
-
-    Fatigue is an estimate derived from driver-state signals.
-    """
-
-    # --------------------------------------------------------
-    # Fatigue estimate
-    # --------------------------------------------------------
-
-    fatigue_score = stress_index
-
-    if has_signal(signals, "driver_stress"):
-        fatigue_score += 0.10
-
-    if has_signal(signals, "tire_overheating"):
-        fatigue_score += 0.05
-
-    if has_signal(signals, "grip_loss"):
-        fatigue_score += 0.05
-
-    fatigue_score = min(
-        1.0,
-        round(fatigue_score, 2),
-    )
-
-    if fatigue_score >= 0.75:
-        fatigue = "HIGH"
-
-    elif fatigue_score >= 0.45:
-        fatigue = "MEDIUM"
-
-    else:
-        fatigue = "LOW"
-
-    # --------------------------------------------------------
-    # Driver workload
-    # --------------------------------------------------------
-
-    if alert_level == "CRITICAL":
-        workload = "VERY HIGH"
-
-    elif alert_level == "ELEVATED":
-        workload = "HIGH"
-
-    else:
-        workload = "NORMAL"
-
-    # --------------------------------------------------------
-    # Actual vehicle telemetry is unavailable
-    # --------------------------------------------------------
-
-    return {
-        "speed_kmh": None,
-        "speed_available": False,
-
-        "ear": None,
-        "ear_available": False,
-
-        "fatigue": fatigue,
-        "fatigue_score": fatigue_score,
-
-        "workload": workload,
-
-        "telemetry_source": (
-            "Voice-derived driver state. "
-            "Vehicle speed and camera EAR unavailable."
-        ),
-    }
-
-
-# ============================================================
-# Main engine
-# ============================================================
-
-class SilentCoDriverEngine:
-
-    def __init__(self):
-
-        print(
-            "⚡ Silent Co-Driver Dynamic Inference Engine Initialized"
-        )
+    # ============================================================
+    # MAIN ANALYSIS PIPELINE
+    # ============================================================
 
     def analyze_vocal_telemetry(
         self,
         text: str,
         lap: int = 18,
-    ) -> Dict[str, Any]:
+    ) -> dict:
 
-        # ----------------------------------------------------
-        # Normalize input
-        # ----------------------------------------------------
-
-        text = clean_text(text)
+        text = (text or "").strip()
 
         if not text:
             text = "Telemetry signal standard"
@@ -1009,98 +1325,152 @@ class SilentCoDriverEngine:
         except (TypeError, ValueError):
             lap = 18
 
-        lap = max(1, lap)
+        # --------------------------------------------------------
+        # 1. LOCAL SIGNALS
+        # --------------------------------------------------------
 
-        # ----------------------------------------------------
-        # Detect racing language
-        # ----------------------------------------------------
+        local_signals = self._analyse_signals(text)
 
-        signals = detect_signals(text)
+        # --------------------------------------------------------
+        # 2. MOTORSPORT LLM
+        # --------------------------------------------------------
 
-        # ----------------------------------------------------
-        # Sentiment
-        # ----------------------------------------------------
+        llm_result = self._ask_motorsport_llm(text)
 
-        sentiment_label, sentiment_score, inference_source = (
-            run_huggingface_sentiment(text)
+        # --------------------------------------------------------
+        # 3. MERGE
+        # --------------------------------------------------------
+
+        signals = self._merge_signals(
+            local_signals,
+            llm_result,
         )
 
-        # ----------------------------------------------------
-        # Driver state
-        # ----------------------------------------------------
+        # --------------------------------------------------------
+        # 4. DRIVER STATE
+        # --------------------------------------------------------
 
-        state = calculate_driver_state(
-            text=text,
-            signals=signals,
-            sentiment_label=sentiment_label,
-            sentiment_score=sentiment_score,
+        (
+            stress_index,
+            alert_level,
+            emotion,
+        ) = self._calculate_driver_state(
+            signals,
+            llm_result,
         )
 
-        stress_index = state["stress_index"]
-        alert_level = state["alert_level"]
-        emotion = state["emotion_label"]
-        confidence = state["confidence"]
+        # --------------------------------------------------------
+        # 5. STRATEGY
+        # --------------------------------------------------------
 
-        # ----------------------------------------------------
-        # Pit strategy
-        # ----------------------------------------------------
-
-        strategy = generate_pit_strategy(
-            lap=lap,
-            alert_level=alert_level,
-            signals=signals,
+        strategy = self._generate_strategy(
+            signals,
+            alert_level,
+            lap,
+            llm_result,
         )
 
-        # ----------------------------------------------------
-        # Driver radio response
-        # ----------------------------------------------------
+        # --------------------------------------------------------
+        # 6. DRIVER MESSAGE
+        # --------------------------------------------------------
 
-        driver_message = generate_driver_message(
-            alert_level=alert_level,
-            signals=signals,
-            strategy=strategy,
+        driver_message = self._generate_driver_message(
+            signals,
+            alert_level,
+            llm_result,
         )
 
-        # ----------------------------------------------------
-        # Dashboard gauges
-        # ----------------------------------------------------
+        # --------------------------------------------------------
+        # 7. CONFIDENCE
+        # --------------------------------------------------------
 
-        telemetry = generate_driver_telemetry(
-            stress_index=stress_index,
-            alert_level=alert_level,
-            signals=signals,
+        if llm_result:
+            confidence = 0.94
+            inference_source = (
+                "Hugging Face Motorsport LLM "
+                "+ Motorsport Rule Engine"
+            )
+        else:
+            confidence = (
+                0.94
+                if alert_level != "NORMAL"
+                else 0.70
+            )
+
+            inference_source = (
+                "Motorsport Rule Engine"
+            )
+
+        # --------------------------------------------------------
+        # 8. FATIGUE
+        # --------------------------------------------------------
+
+        fatigue_score = round(
+            min(
+                1.0,
+                stress_index
+                + (
+                    0.15
+                    if signals["fatigue"]
+                    else 0.0
+                ),
+            ),
+            2,
         )
 
-        # ----------------------------------------------------
-        # Return complete analysis
-        # ----------------------------------------------------
+        if fatigue_score >= 0.75:
+            fatigue = "HIGH"
+        elif fatigue_score >= 0.45:
+            fatigue = "MODERATE"
+        else:
+            fatigue = "LOW"
+
+        # --------------------------------------------------------
+        # 9. WORKLOAD
+        # --------------------------------------------------------
+
+        if alert_level == "CRITICAL":
+            workload = "VERY HIGH"
+        elif alert_level == "ELEVATED":
+            workload = "HIGH"
+        else:
+            workload = "NORMAL"
+
+        # --------------------------------------------------------
+        # 10. TELEMETRY
+        # --------------------------------------------------------
+
+        telemetry = {
+            "speed_kmh": None,
+            "ear": None,
+            "rpm": None,
+            "gear": None,
+            "fatigue": fatigue,
+            "fatigue_score": fatigue_score,
+            "workload": workload,
+        }
+
+        # --------------------------------------------------------
+        # 11. FINAL RESPONSE
+        # --------------------------------------------------------
 
         return {
             "transcript": text,
-
             "stress_index": stress_index,
-
             "alert_level": alert_level,
-
             "emotion_label": emotion,
-
             "confidence": confidence,
-
             "inference_source": inference_source,
-
-            "detected_signals": signals,
-
-            "driver_message": driver_message,
-
             "telemetry": telemetry,
-
+            "detected_signals": signals,
             "strategy": strategy,
+            "driver_message": driver_message,
         }
 
 
-# ============================================================
-# Global engine
-# ============================================================
+# ================================================================
+# SINGLE ENGINE INSTANCE
+# ================================================================
 
 engine = SilentCoDriverEngine()
 
@@ -1108,7 +1478,7 @@ engine = SilentCoDriverEngine()
 def analyze_driver_state(
     text: str,
     lap: int = 18,
-) -> Dict[str, Any]:
+) -> dict:
 
     return engine.analyze_vocal_telemetry(
         text=text,
