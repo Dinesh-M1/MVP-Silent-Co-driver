@@ -1,5 +1,10 @@
+from dotenv import load_dotenv
+
+load_dotenv()
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+
+from app.hf_pipeline import analyze_driver_state
 
 from app.schemas import (
     AnalysisRequest,
@@ -7,7 +12,6 @@ from app.schemas import (
     SimulatorTelemetryRequest,
 )
 
-from app.hf_pipeline import analyze_driver_state
 from app.telemetry import simulator_telemetry
 
 
@@ -25,13 +29,18 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_credentials=False,
-    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_methods=[
+        "GET",
+        "POST",
+        "OPTIONS",
+    ],
     allow_headers=["*"],
 )
 
 
 @app.get("/")
 async def root():
+
     return {
         "status": "online",
         "system": "Silent Co-Driver AI Engine",
@@ -42,21 +51,20 @@ async def root():
 
 @app.get("/health")
 async def health():
+
     return {
         "status": "healthy",
         "service": "silent-co-driver-backend",
     }
 
 
-# ============================================================
-# SIMULATOR TELEMETRY
-# ============================================================
-
 @app.post("/api/v1/telemetry")
 async def receive_simulator_telemetry(
     payload: SimulatorTelemetryRequest,
 ):
+
     try:
+
         simulator_telemetry.update(
             speed_kmh=payload.speed_kmh,
             rpm=payload.rpm,
@@ -72,20 +80,18 @@ async def receive_simulator_telemetry(
         }
 
     except Exception as exc:
+
         raise HTTPException(
             status_code=500,
-            detail=f"Telemetry error: {str(exc)}",
+            detail=f"Telemetry error: {exc}",
         ) from exc
 
 
 @app.get("/api/v1/telemetry")
 async def get_simulator_telemetry():
+
     return simulator_telemetry.get()
 
-
-# ============================================================
-# DRIVER ANALYSIS
-# ============================================================
 
 @app.post(
     "/api/v1/analyze",
@@ -94,6 +100,7 @@ async def get_simulator_telemetry():
 async def analyze_v1(
     payload: AnalysisRequest,
 ):
+
     input_text = (
         payload.text_input.strip()
         if payload.text_input
@@ -101,27 +108,27 @@ async def analyze_v1(
     )
 
     try:
+
         result = analyze_driver_state(
             text=input_text,
             lap=payload.lap_number or 18,
         )
 
-        # Get latest simulator telemetry.
-        simulator_data = simulator_telemetry.get()
-
-        # The pipeline already creates fatigue,
-        # fatigue_score and workload.
-        #
-        # Here we only attach actual simulator data.
-        result["telemetry"]["speed_kmh"] = (
-            simulator_data.get("speed_kmh")
+        simulator_data = (
+            simulator_telemetry.get()
         )
 
-        result["telemetry"]["speed_available"] = (
-            simulator_data.get(
-                "speed_available",
-                False,
-            )
+        result["telemetry"][
+            "speed_kmh"
+        ] = simulator_data.get(
+            "speed_kmh"
+        )
+
+        result["telemetry"][
+            "speed_available"
+        ] = simulator_data.get(
+            "speed_available",
+            False,
         )
 
         result["telemetry"]["rpm"] = (
@@ -132,20 +139,29 @@ async def analyze_v1(
             simulator_data.get("gear")
         )
 
-        result["telemetry"]["throttle"] = (
-            simulator_data.get("throttle")
+        result["telemetry"][
+            "throttle"
+        ] = simulator_data.get(
+            "throttle"
         )
 
         result["telemetry"]["brake"] = (
             simulator_data.get("brake")
         )
 
-        if simulator_data.get("speed_available"):
-            result["telemetry"]["telemetry_source"] = (
-                "Racing Simulator"
-            )
+        if simulator_data.get(
+            "speed_available"
+        ):
+
+            result["telemetry"][
+                "telemetry_source"
+            ] = "Racing Simulator"
+
         else:
-            result["telemetry"]["telemetry_source"] = (
+
+            result["telemetry"][
+                "telemetry_source"
+            ] = (
                 "Driver voice analysis; "
                 "simulator not connected"
             )
@@ -153,13 +169,13 @@ async def analyze_v1(
         return result
 
     except Exception as exc:
+
         raise HTTPException(
             status_code=500,
-            detail=f"Inference error: {str(exc)}",
+            detail=f"Inference error: {exc}",
         ) from exc
 
 
-# Backward-compatible endpoint used by your frontend proxy.
 @app.post(
     "/api/analyze",
     response_model=AnalysisResponse,
@@ -167,4 +183,5 @@ async def analyze_v1(
 async def analyze(
     payload: AnalysisRequest,
 ):
+
     return await analyze_v1(payload)
