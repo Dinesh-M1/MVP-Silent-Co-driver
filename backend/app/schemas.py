@@ -1,24 +1,5 @@
-from typing import List, Optional
-
 from pydantic import BaseModel, Field
-
-
-class AnalysisRequest(BaseModel):
-    text_input: str = Field(
-        default="",
-        description="Raw driver radio or voice transcript",
-    )
-
-    driver_id: str = Field(
-        default="DRIVER_01",
-        description="Driver identifier",
-    )
-
-    lap_number: int = Field(
-        default=18,
-        ge=1,
-        description="Current racing lap",
-    )
+from typing import Optional
 
 
 class Strategy(BaseModel):
@@ -28,104 +9,60 @@ class Strategy(BaseModel):
 
 
 class Telemetry(BaseModel):
-    """
-    Driver and racing simulator telemetry.
-
-    Speed is optional because a simulator is not connected yet.
-    """
-
-    speed_kmh: Optional[float] = None
-
-    speed_available: bool = False
-
-    rpm: Optional[int] = None
-
-    gear: Optional[int] = None
-
-    throttle: Optional[float] = None
-
-    brake: Optional[float] = None
-
     fatigue: str = "LOW"
-
-    fatigue_score: float = Field(
-        default=0.0,
-        ge=0.0,
-        le=1.0,
-    )
-
+    fatigue_score: float = 0.15
     workload: str = "NORMAL"
 
-    telemetry_source: str = (
-        "No live simulator connected"
-    )
+    # Simulator telemetry is optional until a simulator is connected.
+    speed_kmh: Optional[float] = None
+    ear: Optional[float] = None
+    rpm: Optional[float] = None
+    gear: Optional[int] = None
+
+
+class DetectedSignals(BaseModel):
+    grip_loss: bool = False
+    tire_problem: bool = False
+    overheating: bool = False
+    puncture: bool = False
+    braking_problem: bool = False
+    steering_problem: bool = False
+    engine_problem: bool = False
+    traffic: bool = False
+    fatigue: bool = False
+    high_workload: bool = False
+    sliding: bool = False
+    vibration: bool = False
+
+
+class AnalysisRequest(BaseModel):
+    text_input: str = Field(..., min_length=1)
+    driver_id: str = "DRIVER_01"
+    lap_number: int = 1
+
+
+class SimulatorTelemetryRequest(BaseModel):
+    speed_kmh: Optional[float] = None
+    rpm: Optional[float] = None
+    gear: Optional[int] = None
+    throttle: Optional[float] = None
+    brake: Optional[float] = None
 
 
 class AnalysisResponse(BaseModel):
     transcript: str
 
-    stress_index: float = Field(
-        ge=0.0,
-        le=1.0,
-    )
-
+    stress_index: float
     alert_level: str
-
     emotion_label: str
-
-    confidence: float = Field(
-        ge=0.0,
-        le=1.0,
-    )
+    confidence: float
 
     inference_source: Optional[str] = None
-
-    # Your pipeline returns a LIST such as:
-    # ["grip_loss", "tire_overheating"]
-    detected_signals: List[str] = Field(
-        default_factory=list
-    )
-
-    driver_message: str
 
     telemetry: Telemetry
 
     strategy: Strategy
 
+    driver_message: str
 
-class SimulatorTelemetryRequest(BaseModel):
-    """
-    Data that will eventually come from the
-    racing simulator.
-    """
-
-    speed_kmh: Optional[float] = Field(
-        default=None,
-        ge=0.0,
-    )
-
-    rpm: Optional[int] = Field(
-        default=None,
-        ge=0,
-    )
-
-    gear: Optional[int] = Field(
-        default=None,
-    )
-
-    throttle: Optional[float] = Field(
-        default=None,
-        ge=0.0,
-        le=1.0,
-    )
-
-    brake: Optional[float] = Field(
-        default=None,
-        ge=0.0,
-        le=1.0,
-    )
-
-    lap_number: Optional[int] = Field(
-        default=None,
-        ge=1,
-    )
+    detected_signals: DetectedSignals
