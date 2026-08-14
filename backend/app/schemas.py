@@ -1,68 +1,341 @@
+from typing import List, Optional
+
 from pydantic import BaseModel, Field
-from typing import Optional
 
 
-class Strategy(BaseModel):
-    action: str
-    target_compound: str
-    recommended_pit_lap: int
-
-
-class Telemetry(BaseModel):
-    fatigue: str = "LOW"
-    fatigue_score: float = 0.15
-    workload: str = "NORMAL"
-
-    # Simulator telemetry is optional until a simulator is connected.
-    speed_kmh: Optional[float] = None
-    ear: Optional[float] = None
-    rpm: Optional[float] = None
-    gear: Optional[int] = None
-
-
-class DetectedSignals(BaseModel):
-    grip_loss: bool = False
-    tire_problem: bool = False
-    overheating: bool = False
-    puncture: bool = False
-    braking_problem: bool = False
-    steering_problem: bool = False
-    engine_problem: bool = False
-    traffic: bool = False
-    fatigue: bool = False
-    high_workload: bool = False
-    sliding: bool = False
-    vibration: bool = False
-
+# ============================================================
+# ANALYSIS REQUEST
+# ============================================================
 
 class AnalysisRequest(BaseModel):
-    text_input: str = Field(..., min_length=1)
-    driver_id: str = "DRIVER_01"
-    lap_number: int = 1
+
+    text_input: str = Field(
+        default=""
+    )
+
+    driver_id: str = Field(
+        default="DRIVER_01"
+    )
+
+    lap_number: int = Field(
+        default=18,
+        ge=1,
+    )
 
 
-class SimulatorTelemetryRequest(BaseModel):
+# ============================================================
+# STRATEGY
+# ============================================================
+
+class Strategy(BaseModel):
+
+    action: str = Field(
+        default=(
+            "Monitor driver and "
+            "vehicle state."
+        )
+    )
+
+    target_compound: str = Field(
+        default="UNKNOWN"
+    )
+
+    recommended_pit_lap: int = Field(
+        default=0,
+        ge=0,
+    )
+
+
+# ============================================================
+# TELEMETRY
+# ============================================================
+
+class Telemetry(BaseModel):
+
     speed_kmh: Optional[float] = None
-    rpm: Optional[float] = None
-    gear: Optional[int] = None
-    throttle: Optional[float] = None
-    brake: Optional[float] = None
 
+    speed_available: bool = False
+
+    rpm: Optional[int] = None
+
+    gear: Optional[int] = None
+
+    throttle: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+    )
+
+    brake: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+    )
+
+    fatigue: str = "LOW"
+
+    fatigue_score: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+    )
+
+    workload: str = "NORMAL"
+
+    telemetry_source: str = (
+        "No live simulator connected"
+    )
+
+
+# ============================================================
+# VOICE ANALYSIS
+# ============================================================
+
+class VoiceAnalysis(BaseModel):
+
+    emotion: str = "NEUTRAL"
+
+    tone: str = "CALM"
+
+    energy: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+    )
+
+    speech_rate: str = "NORMAL"
+
+    voice_confidence: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+    )
+
+
+# ============================================================
+# DRIVER STATE
+# ============================================================
+
+class DriverState(BaseModel):
+
+    state: str = "NORMAL"
+
+    stress: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+    )
+
+    fatigue: str = "LOW"
+
+    fatigue_score: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+    )
+
+    workload: str = "NORMAL"
+
+    confidence: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+    )
+
+
+# ============================================================
+# RACE EVENT
+# ============================================================
+
+class RaceEvent(BaseModel):
+
+    lap: int = Field(
+        default=0,
+        ge=0,
+    )
+
+    event_type: str = "normal"
+
+    title: str = (
+        "No significant event"
+    )
+
+    description: str = ""
+
+    severity: str = "LOW"
+
+    confidence: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+    )
+
+
+# ============================================================
+# LAP PERFORMANCE
+# ============================================================
+
+class LapPerformancePoint(BaseModel):
+
+    lap: int = Field(
+        ge=1
+    )
+
+    lap_time: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+    )
+
+    stress: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+    )
+
+    fatigue: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+    )
+
+    driver_state: str = "NORMAL"
+
+    event: Optional[str] = None
+
+    event_type: Optional[str] = None
+
+    confidence: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+    )
+
+
+# ============================================================
+# DECISION
+# ============================================================
+
+class Decision(BaseModel):
+
+    priority: str = "NORMAL"
+
+    action: str = (
+        "Continue monitoring "
+        "driver and vehicle state."
+    )
+
+    reason: str = ""
+
+    confidence: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+    )
+
+
+# ============================================================
+# ANALYSIS RESPONSE
+# ============================================================
 
 class AnalysisResponse(BaseModel):
-    transcript: str
 
-    stress_index: float
-    alert_level: str
-    emotion_label: str
-    confidence: float
+    transcript: str = ""
+
+    stress_index: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+    )
+
+    alert_level: str = "NORMAL"
+
+    emotion_label: str = "NEUTRAL"
+
+    confidence: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+    )
 
     inference_source: Optional[str] = None
 
-    telemetry: Telemetry
+    detected_signals: List[str] = Field(
+        default_factory=list
+    )
 
-    strategy: Strategy
+    driver_message: str = ""
 
-    driver_message: str
+    telemetry: Telemetry = Field(
+        default_factory=Telemetry
+    )
 
-    detected_signals: DetectedSignals
+    strategy: Strategy = Field(
+        default_factory=Strategy
+    )
+
+    voice_analysis: VoiceAnalysis = Field(
+        default_factory=VoiceAnalysis
+    )
+
+    driver_state: DriverState = Field(
+        default_factory=DriverState
+    )
+
+    important_events: List[
+        RaceEvent
+    ] = Field(
+        default_factory=list
+    )
+
+    lap_performance: List[
+        LapPerformancePoint
+    ] = Field(
+        default_factory=list
+    )
+
+    decision: Decision = Field(
+        default_factory=Decision
+    )
+
+    co_driver_response: str = ""
+
+
+# ============================================================
+# SIMULATOR TELEMETRY
+# ============================================================
+
+class SimulatorTelemetryRequest(BaseModel):
+
+    speed_kmh: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+    )
+
+    rpm: Optional[int] = Field(
+        default=None,
+        ge=0,
+    )
+
+    gear: Optional[int] = None
+
+    throttle: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+    )
+
+    brake: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+    )
+
+    lap_number: Optional[int] = Field(
+        default=None,
+        ge=1,
+    )
+
+    lap_time: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+    )
